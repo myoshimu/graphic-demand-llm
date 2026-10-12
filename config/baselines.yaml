@@ -1,0 +1,38 @@
+# ベースライン B0–B4（CLAUDE.md §5.1）
+#
+# ハイパーパラメータは推測で 1 点に決めず、学習期間内の GroupKFold（graphic_id でグループ化）で下のグリッドから選ぶ。
+# テスト期間（settings.yaml evaluation.split.test）は選択に一切使わない。
+
+version: 1
+target: primary_regression_target     # settings.yaml outcomes.* のキー名
+cv_folds: 5
+
+features:
+  # B1 = メタデータのみ（§5.1）。いずれも発売前に確定している値
+  numeric: [price_list]      # 商品マスタの正価（税込）。price_proper_max は販売量が漏れるので使わない（decisions_log 2026-09-29（6））
+  categorical: [is_original, ip_scale, release_month, color_id]
+  # ip_scale の欠損は IP 側だけで起き、2025 年（テスト）に集中する（questions.md A32）。
+  # オリジナルは "original"、IP で欠損は "unknown" という独立カテゴリにする（補完しない）。
+  # 非対称性の影響を見るため ip_scale を落とした B1 も併記する。
+  ip_scale_original_label: original
+  ip_scale_missing_label: unknown
+
+ridge:
+  alphas: [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000]
+
+lightgbm:
+  fixed:
+    n_estimators: 400
+    learning_rate: 0.03
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    verbose: -1
+  grid:
+    num_leaves: [7, 15, 31]
+    min_child_samples: [10, 30]
+  # B2 の LightGBM 版は埋め込みを PCA で圧縮してから入れる（1,200 行に 768 次元は多すぎる）
+  embedding_pca_dims: 32
+
+knn:                                   # B4：埋め込み空間の最近傍（コサイン）
+  k_grid: [5, 10, 20, 50]

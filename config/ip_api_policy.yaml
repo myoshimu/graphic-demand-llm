@@ -1,0 +1,26 @@
+# IP 画像の外部 API 送信・掲載ポリシー（CLAUDE.md §2.1）
+#
+# 2026-09-28 改訂：retailer の許可により、IP 画像を外部 API に送信してよい。
+# 許可の条件は「IP 画像を論文に掲載しないこと」。経緯は docs/decisions_log.md 2026-09-28。
+
+version: 1
+
+# ---- 外部 API への送信 ----
+allow_external_api_for_ip: true
+
+# ---- 掲載の制限（許可の条件）----
+# is_original == False の SKU の画像を、paper/ の図表・data/benchmark/・発表資料に出力しない。
+# 図表・ベンチマーク生成コードはこの値を読み、IP 画像を含む出力を拒否すること。
+allow_publish_ip_images: false
+# retailer オリジナル（is_original == True）の T シャツ画像は論文の図に掲載してよい（2026-10-04、研究責任者経由で retailer が許可）。
+# ベンチマークでの画像の再配布は未確認（questions.md D3）。
+allow_publish_original_images_in_paper: true
+
+# ---- 許可の記録 ----
+approval:
+  approved_by: "retailer（研究責任者 the authors が受領・報告）"
+  reported_on: "2026-09-28"
+  approved_on: "2024-03"     # 研究責任者の報告（2026-09-28）。日は不明、月まで
+  document_path: null        # TODO(B1): 許可のメール等があれば docs/approvals/ に置いてパスを記載
+  scope: "研究目的での外部 API 送信を全 IP について許可。IP 画像を論文に掲載しないことが条件"
+  precedent: "人工知能学会で同様の分析を発表済み（研究責任者）"

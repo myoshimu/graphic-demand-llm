@@ -1,0 +1,148 @@
+# 使用する LLM / VLM の一覧（CLAUDE.md §5.2 / §5.3）
+#
+# 重要:
+#   - training_cutoff は §5.3 の「学習データ汚染対策」に必須。未確認のモデルは使わない。
+#   - 外部 API にも IP 画像（is_original == False）を送ってよい（2026-09-28 改訂）。ただし IP 画像は
+#     論文・図表・ベンチマークに載せない（CLAUDE.md §2.1）。判定は config/ip_api_policy.yaml を唯一の元とする。
+#   - B8 決着（2026-09-28）：API は Gemini 2 モデル、ローカルは Qwen-VL 系。パネル実装までは enabled: false のまま。
+#   - 2026-10-07 改訂：ローカル Qwen-VL は保留。再現用に Model Garden の他社モデル（Claude 等）を追加してよい（decisions_log）。
+
+version: 1
+
+defaults:
+  max_tokens: 2048          # 512 だと Pro が thinking して切れる（budget 0 でも約 2 割は thinking する、2026-10-03）
+  response_format: json_object
+  retry_on_parse_error: 2
+  # 画像トークン数（Gemini 3、https://ai.google.dev/gemini-api/docs/media-resolution）：
+  # low 280 / medium 560 / high 1120（既定）/ ultra_high 2240。パイロットで high と medium を比べて決める
+  media_resolution: null
+
+models:
+  # ---- 外部 API（Gemini。全 SKU に使用）----
+  # B8 決着（2026-09-28（4）、docs/decisions_log.md）：API は Gemini 2 モデル。Claude 等は使わない → 2026-10-07 に解禁（再現用）。
+  # 以下は Vertex AI のモデルページ（2026-09-28 取得）で確認した値。
+  - key: api_a
+    enabled: false            # パネル実装まで有効化しない（training_cutoff は確定済み）
+    provider: vertex_ai
+    model_id: "gemini-3.1-pro-preview"
+    location: global          # us-central1 では 404（2026-10-03 確認）
+    thinking: {budget: 0}     # thinking なし。thinking_level MINIMAL は非対応（2026-10-03 確認）
+    is_local: false
+    supports_vision: true
+    training_cutoff: "2025-01-31"  # 研究責任者の確認（2026-10-03）。3.1 Pro のモデルカードは学習データを「Gemini 3 Pro のカード参照」とし、
+                                   # Gemini 3 Pro Model Card の "knowledge cutoff date ... was January 2025"（2026-09-29 確認）とも整合
+    # Gemini API 料金ページ（https://ai.google.dev/gemini-api/docs/pricing、2026-09-29 取得）。Vertex も同額と仮定（要確認）
+    # 標準 $2.00 / $12.00 per 1M（入力 ≤200k）。Batch は半額。出力には thinking トークンを含む
+    usd_per_1k_input: 0.002
+    usd_per_1k_output: 0.012
+    usd_per_1k_input_batch: 0.001
+    usd_per_1k_output_batch: 0.006
+    notes: "Public preview（2026-02-19 リリース）。temperature 0.0–2.0 指定可。preview は廃止されうる（3-pro-preview は廃止済み）"
+
+  - key: api_b
+    enabled: false
+    provider: vertex_ai
+    location: global
+    thinking: {level: MINIMAL}  # budget 0 は global で約半数が 400 になる（振り分け先による、2026-10-03）。MINIMAL は全件通り thinking 0
+    model_id: "gemini-3.5-flash"   # 2026-10-03 に 3.8 Flash から変更（decisions_log）。Stable。バージョン固定 ID の記載なし
+    is_local: false
+    supports_vision: true
+    training_cutoff: "2025-01"  # 研究責任者の確認（2026-10-03）。モデルカード（2026-05-19 公開）は学習データを
+                                # Gemini 3 Flash のカードに委ね、そのカードは Gemini 3 Pro のカードに委ねる
+                                # （3 Pro カード："January 2025"）。月単位なので 1/31 まで学習済みとして扱う
+    # Gemini API 料金ページ（https://ai.google.dev/gemini-api/docs/pricing、2026-10-03 取得）。Vertex も同額と仮定（要確認）
+    # 標準 $1.50 / $9.00 per 1M、Batch $0.75 / $4.50。出力には thinking トークンを含む。価格改定予定の記載なし
+    usd_per_1k_input: 0.0015
+    usd_per_1k_output: 0.009
+    usd_per_1k_input_batch: 0.00075
+    usd_per_1k_output_batch: 0.0045
+    notes: "Stable（legacy 扱い）。廃止日は未発表（2026-10-03 時点）。temperature の範囲と thinking を切れるかは記載なし → パイロットで確認"
+
+  # ---- 外部 API（Claude、Vertex AI Model Garden。系統の異なるモデルでの再現用、decisions_log 2026-10-07（2））----
+  # Vertex 料金ページ（https://cloud.google.com/vertex-ai/generative-ai/pricing、2026-10-07 取得）の global の値。
+  # リージョン指定のエンドポイントは 1 割高い。カットオフは Anthropic のモデルページ（2026-10-07 取得）。
+  - key: api_c
+    enabled: true
+    provider: anthropic_vertex
+    model_id: "claude-sonnet-4-6"
+    location: global
+    is_local: false
+    supports_vision: true
+    training_cutoff: "2026-01"     # 学習データのカットオフ。知識が確かなのは 2025-08 まで（reliable knowledge cutoff）
+    usd_per_1k_input: 0.003
+    usd_per_1k_output: 0.015
+    usd_per_1k_input_batch: 0.0015
+    usd_per_1k_output_batch: 0.0075
+    notes: "Legacy（2026-02-17 リリース、Anthropic 側の廃止は 2027-02-17 以降、Vertex は独自に決める）。温度 0 可、thinking は省略で無し、seed は無い。画像 1 枚約 1,600 トークン"
+
+  - key: api_d
+    enabled: false
+    provider: anthropic_vertex
+    model_id: "claude-sonnet-5-5"
+    location: global
+    is_local: false
+    supports_vision: true
+    training_cutoff: "2026-06"     # 知識が確かなのも 2026-06 まで
+    usd_per_1k_input: 0.002
+    usd_per_1k_output: 0.010
+    usd_per_1k_input_batch: 0.001
+    usd_per_1k_output_batch: 0.005
+    notes: "temperature を指定すると 400（2026-10-07 確認）。現在の ClaudePanelClient は温度を送るので、使うなら対応が要る。画像 1 枚約 2,400 トークン"
+
+  # ---- ローカル VLM（汚染チェックの再現用、§5.3）— 2026-10-07 から保留（GPU 費用）----
+  - key: local_a
+    enabled: false
+    provider: vllm
+    model_id: null            # 候補: Qwen2-VL 系（§5.2）
+    is_local: true
+    supports_vision: true
+    training_cutoff: null
+    weights_path: null
+    notes: "Qwen-VL 系。Gemini と系統の異なるモデルでの再現用（decisions_log 2026-09-28（4））"
+
+  - key: local_b
+    enabled: false
+    provider: vllm
+    model_id: null
+    is_local: true
+    supports_vision: true
+    training_cutoff: null
+    weights_path: null
+    notes: ""
+
+# ---- 画像埋め込み（ベースライン B2 / B4、§5.1）----
+embeddings:
+  # 2026-09-29 決定（decisions_log）：OpenAI の元重み。学習データは 2021 年以前で 2023–2025 の商品を含み得ない。
+  # gemini-embedding は使わない（研究責任者 2026-09-29）。
+  - key: clip_vit_l14
+    enabled: true
+    library: open_clip
+    model_id: "ViT-L-14-quickgelu"   # openai 重みは QuickGELU で学習。無印 ViT-L-14 だと活性化が食い違う
+    pretrained: "openai"
+    is_local: true
+    batch_size: 16
+    output: data/cache/embeddings_clip_vit_l14.parquet   # image_sha256 がキー。取得済みは再計算しない
+
+# ---- LLM 呼び出しのキャッシュ／台帳（§6）----
+cache:
+  # キャッシュキー: モデル・プロンプト・画像ハッシュ・温度・seed
+  key_fields: [model_key, model_id, prompt_sha256, image_sha256, temperature, seed]
+  dir: data/cache/llm
+  ledger: data/cache/llm_ledger.parquet
+  ledger_fields:
+    - timestamp
+    - model_key
+    - model_id
+    - model_version
+    - provider
+    - is_local
+    - prompt_sha256
+    - image_sha256
+    - temperature
+    - seed
+    - input_tokens
+    - output_tokens
+    - usd_cost
+    - latency_seconds
+    - cache_hit
+    - ip_policy_decision

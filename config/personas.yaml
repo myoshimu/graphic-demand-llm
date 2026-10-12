@@ -1,0 +1,45 @@
+# 合成消費者パネルのペルソナ生成パラメータ（CLAUDE.md §5.2）
+#
+# 2026-10-03 確定（decisions_log 2026-10-03（4））。出典は reports/persona_distribution.md
+# （2023–2025 年に EC で T シャツを買った 301,313 人、BQ 上の集計値のみ）。
+# 重みは購入点数比（需要側）。不明（年齢 24% / 性別 15% / 都道府県 18%、いずれも購入点数比）は除き、残りを按分した。
+
+version: 1
+
+n_personas: 50                 # config/settings.yaml の panel.n_personas と一致させる
+sampling:
+  method: quota                # 各軸ごとに最大剰余法で人数を割り当て、軸どうしは seed 付きシャッフルで独立に組み合わせる
+  seed: 20260914
+  independent_axes: true       # 同時分布は取っていない。軸間の相関（例：年齢×性別）は無視する
+
+attributes:
+  age_band:
+    levels: ["-19", "20-24", "25-29", "30-34", "35-39", "40-49", "50-"]
+    weights: [0.0051, 0.0305, 0.0630, 0.0930, 0.1289, 0.3346, 0.3450]
+  gender:
+    levels: ["female", "male"]
+    weights: [0.7091, 0.2909]
+  region:
+    # 都道府県を 8 地方に集約。海外・判読不能は不明扱いで除外。沖縄は九州に含める
+    levels: ["kanto", "kansai", "chubu", "kyushu", "tohoku", "hokkaido", "shikoku", "chugoku"]
+    weights: [0.4915, 0.1736, 0.1382, 0.0701, 0.0386, 0.0304, 0.0191, 0.0387]
+  purchase_frequency:
+    # 期間中（3 年）の T シャツ EC 注文回数：1 回 / 2 回 / 3–5 回 / 6 回以上
+    levels: ["first_time", "occasional", "regular", "heavy"]
+    weights: [0.3109, 0.1817, 0.2548, 0.2526]
+  ip_fandom:
+    # T シャツ購入点数に占める IP 商品の比率：<25% / 25–75% / 75–100% 未満 / 100%
+    # 1 回しか買っていない人は 0% か 100% にしかならないため、superfan が多めに出る（論文に書く）
+    levels: ["none", "casual", "fan", "superfan"]
+    weights: [0.3142, 0.2620, 0.0733, 0.3504]
+    source_note: "PU 親和性スコア（先行研究）は未受領のため、IP 購入比率で代用"
+
+# ペルソナ文面は src/panel/personas.py、プロンプトは src/panel/prompts.py で組み立てる。
+prompt:
+  language: ja
+  # §5.2 の回答形式。変更する場合は decisions_log に記録
+  response_schema:
+    purchase_intent: "int 1-5"
+    purchase_prob: "float 0-1"
+    would_pay_jpy: "int"
+    reason: "str (短文)"

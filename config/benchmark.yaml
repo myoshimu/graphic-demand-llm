@@ -1,0 +1,12 @@
+# 公開ベンチマーク（CLAUDE.md §5 フェーズ3、decisions_log 2026-10-04（17）（18））
+# retailer オリジナル（is_original == True）のみ。売上は順位の 10 分位と組の勝ち負けだけを出す。
+sales_bins: 10                 # 同じ発売月（年×月）のオリジナル内での 8 週 EC 販売数の分位数（研究責任者が案 ① を選択、2026-10-04）
+cohort: [year, release_month]
+# 価格は正価そのものではなく帯で出す（retailer に提示した案のとおり）。境界は下限を含む
+price_bands_jpy: [0, 3500, 4000, 5000]
+price_band_labels: ["<3500", "3500-3999", "4000-4999", ">=5000"]
+# 画像の再配布は未確認（questions.md D3）。false の間は公開 URL だけを出す
+include_images: false
+image_url_template: "https://images.example.com/images/item/product_image/{class_id}.{color_id}.-_1.jpg"
+# 参考として本研究の LLM の 2 案比較スコアを組ごとに出す
+reference_runs: [pro_v0, flash_v0]

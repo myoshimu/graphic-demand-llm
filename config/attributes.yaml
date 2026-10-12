@@ -1,0 +1,42 @@
+# VLM で自動付与する解釈可能な視覚属性のスキーマ（CLAUDE.md §5.5 / 案3）
+#
+# フェーズ1 で使用する。属性を追加・変更したら docs/decisions_log.md に記録し、
+# 既存の付与結果は再生成する（キャッシュキーにこのファイルのハッシュを含める）。
+# 人手検証用に 300 枚をサンプル出力する（§5.5）。
+
+version: 1
+
+attributes:
+  - name: n_colors
+    type: int
+    description: "グラフィックの配色数（おおよそ）"
+  - name: dominant_colors
+    type: list[str]
+    description: "主色（最大 3 色、色名で）"
+  - name: text_amount
+    type: categorical
+    levels: [none, few, many]
+    description: "グラフィック内の文字量"
+  - name: motif
+    type: categorical
+    levels: [person, animal, character, abstract, text, landscape, object, food, other]
+    description: "主要モチーフ種別"
+  - name: density
+    type: categorical
+    levels: [sparse, medium, dense]
+    description: "描画密度"
+  - name: whitespace_ratio
+    type: float
+    description: "グラフィック領域に占める余白の比率（0-1）"
+  - name: realism
+    type: categorical
+    levels: [photographic, realistic_illustration, stylized, abstract]
+    description: "写実／抽象の度合い"
+  - name: humor
+    type: bool
+    description: "ユーモア表現を含むか"
+
+validation:
+  human_check_sample_n: 300
+  sample_output_dir: reports/attribute_samples
+  sample_seed: 20260914

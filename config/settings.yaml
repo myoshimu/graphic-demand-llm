@@ -1,0 +1,174 @@
+# プロジェクト共通設定（CLAUDE.md §6「設定値はコードにハードコードせず config/ から読む」）
+#
+# TODO が付いた値は docs/questions.md の該当番号が CLOSED になるまで確定しない。
+# 未確定値は null のままにし、コード側は null を読んだら例外を投げること（推測で埋めない）。
+
+version: 1
+
+paths:
+  raw: data/raw
+  processed: data/processed
+  cache: data/cache
+  benchmark: data/benchmark
+  images: data/cache/images
+  artwork: data/raw/artwork
+  reports: reports
+  prereg: prereg
+  figures: paper/figures
+  tables: paper/tables
+
+raw_files:
+  # 実体は「商品 × 月の売上パネル」（770 商品）。garahame_ptn の供給元としてのみ使う。
+  # 詳細と注意点は docs/data_dictionary.md §1-4
+  graphic_pattern_csv: data/raw/prod_master2024.csv
+
+# ---- BigQuery（主データ源）----
+# docs/decisions_log.md 2026-09-14「主データ源を BigQuery とする」参照
+bigquery:
+  billing_project: your-gcp-project
+  orders: your-gcp-project.wsdm.orders                       # 明細レベル受注。30.2M 行 / 14.5 GB / 2019-10-29〜2026-08-14
+  ip_master: your-gcp-project.wsdm.collection_ip_master      # content_id → IP 名・is_ip_draft・resolved・知名度指標
+  ip_tags: your-gcp-project.wsdm.ip_tags                     # audience_scale = §3.3 の ip_scale
+  ip_visual: your-gcp-project.wsdm.ip_visual
+  slug_drops: your-gcp-project.wsdm.slug_drops               # コレクション単位の投入週
+  customers: your-gcp-project.wsdm.customers                 # 個票（PII）。集計値のみ取得すること（§2.2）
+  # retailer-data-pf からのコピー（2026-09-16 受領、E9 の回避）。取得日時点のスナップショット
+  item_master: your-gcp-project.pf_copy.item_master          # 140,636 item_code / 43,905 class_id。現在状態のみ
+  stock_dist: your-gcp-project.pf_copy.t1_z_dist             # 倉庫在庫 日次。file_date で DAY パーティション
+  stock_shop: your-gcp-project.pf_copy.t1_z_shop             # 店舗別在庫 日次。652M 行 / 42.9 GB。2019-11-01〜2026-09-14
+  # アクセス不可（questions.md E9）。権限が付いたら有効化する
+  datamart_ec_order_detail: null                         # retailer-data-pf.datamart.ec_order_detail
+  # orders はパーティション・クラスタリング無し。列を明示して抽出し parquet に materialize する
+  forbid_select_star: true
+  dry_run_before_query: true
+
+# ---- 画像取得（§3.1）----
+images:
+  url_template: "https://images.example.com/images/item/product_image/{product_id}.{color_code}.-_1.jpg"
+  rate_limit_rps: 1.0        # §3.1: 1 req/sec 以下。上げないこと
+  max_concurrency: 1         # レート制限を守るため直列を既定とする
+  max_retries: 3
+  backoff_seconds: 5.0
+  timeout_seconds: 30.0
+  user_agent: "graphic-demand-llm research crawler (Univ. of Tokyo; contact: TODO(E12))"
+  skip_if_cached: true       # §3.1: 取得済みは再取得しない
+  smoke_test_n: 20           # §7-4: まず 20 件で動作確認
+
+# ---- graphic_id の導出（§3.3 / §7-6）----
+# マスタに graphic_id 相当は無い（content_id はコレクション単位で粗すぎる）。画像ハッシュで推定する。
+# **閾値は推測で決めない（§2.5）。** reports/graphic_id_candidates/ の人手確認後に記入する。
+# 未設定のあいだ src/features/graphic_id.py は距離分布の測定までで止まる。
+graphic_id:
+  hash: phash_chest          # 胸元クロップ × pHash(16)。全身だと別デザインの黒 T が距離 0 になる
+  # 辺を張るのは「同一 content_id かつ color_id が異なる」ペアのみ（ブロッキング）。
+  # これで Dragon Quest 呪文100 シリーズ（105 点・ほぼ全点 color_id=100）を機械的に除ける。
+  block_on: content_id
+  require_different_color: true
+  threshold: 96              # 候補生成用。**これ単独では確定させない**
+  # 閾値だけでは原理的に解けない（正例 38-90 と負例 5-90 が重なる）。
+  # 候補クラスタは config/graphic_id_review.yaml で人手確定する。
+  require_review: true       # review が空なら graphic_ids.parquet の reviewed=False
+  hash_size: 16              # 256 bit。既定の 8 だと 666 点でも偶然衝突が出る
+
+# ---- EC 掲載フラグ（questions.md A19）----
+# 商品画像は EC 掲載商品にしか存在しない（reports/phase0_images.md §2）。
+# 掲載の有無は商品詳細ページ /item-detail/{class_id}{color_id} の閲覧ログで判定する。
+# 2024 年コホート 836 点で、閲覧の有無と画像の有無は 836/836 完全一致した。
+ec_listed:
+  pv_base: your-gcp-project.wsdm.pv_base    # 2022-02-01〜2025-01-31（先行研究の成果物）
+  ga4: your-gcp-project.asia.events_*       # 2025-02-01 以降。event_params から page_location を展開
+  ga4_end: "2026-08-31"                 # GA4 側の取得終了日。延ばす前に dry-run のスキャン量を見る
+  output: data/cache/ec_listed.parquet
+  # 判定は「PV > 0」ではなく「初回閲覧が発売日 + launch_window_days 以内」。
+  # 素朴な PV > 0 だと、実体の無い URL への 404 アクセスを拾って一致率が 836→818 に落ちる。
+  # 掲載側の初回閲覧は発売の −70〜+2 日（予約ページが先に公開される）、誤検知側は最短 +55 日。
+  launch_window_days: 30
+  # pv_total は「発売後の閲覧数」でアウトカムと同時決定。**特徴量に使わないこと。**
+  # ここで使うのはゼロか否かの二値だけ。
+  use_pv_as_feature: false
+
+# ---- 対象範囲（§3.2）----
+scope:
+  # カテゴリは wsdm.orders.item_class_name_2 で判定（A10 解決）
+  category_column: item_class_name_2
+  # 2024 年「発売」コホートは class_id 836 点（2,146 点は 2024 年に「売れた」点数で継続品を含む）
+  # docs/decisions_log.md 2026-09-15 / questions.md A27
+  primary_category: "U_Tシャツ"
+  replication_categories:                # B5 解決。2024 年 class_id 数（SKU >= 300 のもの）
+    - "U_スウェット・パーカー"            # 573
+    - "F_バッグ"                          # 468
+    - "K_Tシャツ"                         # 475
+    - "F_帽子"                            # 460
+  # 最終選定は「価格帯が狭い」条件を見てから（questions.md B5）
+  replication_selected: null
+  # 2024 単年だと発売コホートは 836 点。2023-2025 なら 2,484 点
+  release_years: [2023, 2024, 2025, 2026]   # A27/B7 決着（2026-09-28）は 3 年。2026 は 2 案比較の確認用に追加（decisions_log 2026-10-03（10））。学習・テストには使わない
+  # 除外（A9 解決）。値は wsdm.orders の実値
+  # 予約は「除外」ではなく「発売日の起点にしない」扱いに変更した。明細を落とすと
+  # 予約を取った SKU（27%）だけ販売点数が過小になるため。week_index が負の行として残す。
+  # docs/decisions_log.md 2026-09-15
+  exclude_hanbai_kbn: ["受注生産"]
+  exclude_production_kbn: ["受注生産"]
+  # チャネル（A8 解決）。A26 決着：主分析は EC チャネル（docs/outcome_decision.md §4）
+  # 素の販売点数は流通幅に支配される（EC 専売 183 点 中央値 33 vs 店舗配荷 653 点 中央値 543）。
+  channel: "ec"                          # "store" | "ec" | "all"
+  # 分析母集団 ＝ 画像あり かつ 初回閲覧が発売 +30 日以内（A31 決着 2026-09-28）。
+  # 2024 年は掲載 ⇔ 画像ありが完全一致したが、2023 年の遅延掲載 60 点・2025 年の誤検知 27 点で崩れたため
+  # 両方を条件にした。実体は data/processed/population.parquet（make population）。
+  # この選択バイアスは A19 として別建てで報告する。
+  population: ec_listed_with_image
+  ec_filter: "store_category = 'EC'"
+
+# ---- アウトカム（§3.4）----
+outcomes:
+  # B6 / A26 決着（2026-09-18、docs/outcome_decision.md §4・docs/decisions_log.md）
+  primary: y_units_ec_launch_8w    # EC 販売点数（予約込み）、発売後 8 週。母集団は EC 掲載済み
+  # 回帰のターゲットにはこちらを使う。主指標は順位ベース（Spearman / Precision@k）なので
+  # 変換は評価結果を変えない。ターゲット変換と評価指標を混同しないこと。
+  primary_regression_target: y_log1p_units_ec_launch_8w
+  secondary:
+    - y_units_per_store_8w         # CLAUDE.md §3.4 の正統形。A4/A5（t1_z_shop）解決後に追加
+    - y_units_launch_8w            # 全チャネル（ρ = 0.789）
+    - y_units_ec_launch_4w         # 窓幅の感度分析
+  excluded:
+    # 42.3% が 1.0 に張り付く準二値分布。連続アウトカムとしては使わない
+    y_fullprice_share_8w: "準二値分布"
+    # 分母（初回生産数）が t1_z_shop から再構成できるまで計算不能。かつ分母自体が内生的
+    y_sellthrough_8w: "分母が未取得（A4）"
+  log1p_variants: true
+  windows_weeks: [4, 8]
+  # EC 専売 94 点（EC 売上中央値 17 点）は除外しない。Precision@k が意味を持つのは
+  # この弱い裾があってこそ。除いた版も頑健性チェックとして併記する。
+  drop_ec_exclusive: false
+
+# ---- 評価（§5.1 / §5.3）----
+evaluation:
+  split:
+    type: temporal            # ランダム split は使わない（§5.1）
+    # B7 決着（2026-09-28、研究責任者が推奨を承認）：2023–2024 年発売で学習 → 2025 年発売でテスト
+    train: [2023, 2024]       # 発売年
+    test: [2025]
+    # 2 案比較の確認用（decisions_log 2026-10-03（10））。発売後 8 週を観測できた SKU（fully_observed）のみ
+    confirm: [2026]
+  # §5.3 の汚染チェック専用ホールドアウト。2026-10-03 に廃止（decisions_log 2026-10-03（3））：
+  # Gemini 2 モデルのカットオフがどちらも 2025-01 なので、テスト期間 2025 年がそのままカットオフ後になる。
+  # （旧設定：2026-04-01〜06-30。3.8 Flash のカットオフ 2026-03 に合わせて設けていた）
+  contamination_holdout: null
+  metrics: [spearman, precision_at_k, ndcg_at_k, quantile_lift]
+  precision_at_k: [0.1, 0.2]
+  bootstrap:
+    n_resamples: 2000
+    cluster_column: graphic_id   # §5.3: graphic_id でクラスタ
+  heterogeneity_by: [is_original, ip_scale, price_band, release_month]
+
+# ---- 合成パネル（§5.2）----
+panel:
+  n_personas: 50              # 感度分析: 10 / 200
+  n_personas_sensitivity: [10, 200]
+  conditions: [full, image_only, artwork_only, text_only, image_masked_text]
+  temperatures: [0.0, 0.7]
+  seeds: [1, 2, 3]
+  prompt_variants: 3
+  budget_usd_cap: null        # TODO(B9): 予算上限が決まるまで大量実行しない
+
+random_seed: 20260914
