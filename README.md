@@ -1,7 +1,5 @@
 # Which Design Sells Better? -- anonymized code for review
 
-Code for the paper "Which Design Sells Better? Validating LLM Judgments Against Real E-Commerce Sales" (WWW 2027 submission).
-
 The sales data, product images, and the retailer's identity are confidential and are **not** included.
 The code therefore cannot be run end to end without access to the retailer's data warehouse, but every analysis in the paper
 is produced by the scripts here.
