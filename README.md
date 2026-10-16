@@ -1,4 +1,4 @@
-# Which Design Sells Better? -- anonymized code for review 
+# Which Design Sells Better? -- LLM personas predict the sales
 
 The sales data, product images, and the retailer's identity are confidential and are **not** included.
 The code therefore cannot be run end to end without access to the retailer's data warehouse, but every analysis in the paper
